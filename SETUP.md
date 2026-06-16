@@ -77,9 +77,42 @@ Open the **Settings** tab and edit the values in the middle column:
 | **Days to look ahead** | How many days from today to check (e.g. `7`) |
 | **Shortest free slot (minutes)** | Ignore gaps shorter than this (e.g. `30`) |
 | **Include weekends?** | Type `Yes` or `No` |
+| **Exclude declined meetings?** | `Yes` = meetings you said *No* to count as free time |
+| **Exclude all-day events?** | `Yes` = all-day events (birthdays, OOO banners) don't block the day |
 
 After changing anything, click **Calendar Tools → Find Free Times** again to
 refresh.
+
+---
+
+## Already set it up before? Updating to the latest version
+
+If you set up the Sheet earlier and want the newest features:
+
+1. In the Sheet, click **Extensions → Apps Script**.
+2. Select everything in the code box (**Ctrl+A** / **⌘+A**) and delete it.
+3. Paste in the latest **`Code.gs`**, then click **Save**.
+4. Go back to the Sheet and **reload the page** (F5).
+5. Click **Calendar Tools → Set up sheet** to add the new settings rows.
+
+---
+
+## Booking pages — one-time scan (optional, for now)
+
+Google "booking pages" don't have a clear label we can detect automatically, so
+there's a one-time scan to see how they show up in *your* calendar.
+
+1. **Turn on the Calendar service** (needed for the full scan):
+   - In the Sheet, click **Extensions → Apps Script**.
+   - On the left, next to **Services**, click the **+**.
+   - Find **Calendar API** in the list, click it, then click **Add**.
+2. Go back to the Sheet, then click **Calendar Tools → Scan my calendar
+   (diagnostic)**.
+3. A tab called **Diagnostic** appears, listing your upcoming events and how each
+   is classified.
+4. Send that **Diagnostic** tab back so the booking-page setting can be finished.
+
+(You can skip this if you don't use booking pages.)
 
 ---
 

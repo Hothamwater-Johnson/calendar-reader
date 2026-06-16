@@ -14,6 +14,8 @@ You run it by clicking a menu item in the Sheet.
 - Only suggests times inside your chosen workday (default **9:00 AM–5:00 PM**,
   weekdays only).
 - Ignores tiny gaps (default: shorter than **30 minutes**).
+- Can skip **declined meetings** and **all-day events** so they don't block your
+  free time (both on by default).
 - All settings are editable in a **Settings** tab — no code changes needed.
 
 ## Setup

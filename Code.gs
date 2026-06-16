@@ -12,11 +12,14 @@ var DEFAULTS = {
   workEnd: '5:00 PM',
   daysAhead: 7,
   minSlotMinutes: 30,
-  includeWeekends: false
+  includeWeekends: false,
+  excludeDeclined: true,
+  excludeAllDay: true
 };
 
 var SETTINGS_SHEET = 'Settings';
 var RESULTS_SHEET = 'Free Times';
+var DIAGNOSTIC_SHEET = 'Diagnostic';
 
 /**
  * Adds the custom menu when the Sheet is opened.
@@ -27,6 +30,7 @@ function onOpen() {
     .addItem('Find Free Times', 'findFreeTimes')
     .addSeparator()
     .addItem('Set up sheet', 'setupSheet')
+    .addItem('Scan my calendar (diagnostic)', 'scanCalendar')
     .addToUi();
 }
 
@@ -47,7 +51,9 @@ function setupSheet() {
     ['Workday ends at', DEFAULTS.workEnd, 'Latest time of day to suggest (e.g. 5:00 PM)'],
     ['Days to look ahead', DEFAULTS.daysAhead, 'How many days from today to check'],
     ['Shortest free slot (minutes)', DEFAULTS.minSlotMinutes, 'Ignore gaps shorter than this'],
-    ['Include weekends?', DEFAULTS.includeWeekends ? 'Yes' : 'No', 'Type Yes or No']
+    ['Include weekends?', DEFAULTS.includeWeekends ? 'Yes' : 'No', 'Type Yes or No'],
+    ['Exclude declined meetings?', DEFAULTS.excludeDeclined ? 'Yes' : 'No', 'Type Yes or No — meetings you said No to count as free'],
+    ['Exclude all-day events?', DEFAULTS.excludeAllDay ? 'Yes' : 'No', 'Type Yes or No — all-day events (birthdays, OOO) do not block the day']
   ];
 
   sheet.getRange(1, 1, rows.length, 3).setValues(rows);
@@ -76,7 +82,7 @@ function findFreeTimes() {
   var rangeStart = startOfDay_(now);
   var rangeEnd = addDays_(rangeStart, settings.daysAhead);
 
-  var busy = getBusyIntervals_(rangeStart, rangeEnd);
+  var busy = getBusyIntervals_(rangeStart, rangeEnd, settings);
   busy = mergeIntervals_(busy);
 
   var output = [];
@@ -137,21 +143,40 @@ function readSettings_() {
     workEndMinutes: parseTimeToMinutes_(workEnd, 17 * 60),
     daysAhead: isNaN(daysAhead) || daysAhead < 1 ? DEFAULTS.daysAhead : daysAhead,
     minSlotMinutes: isNaN(minSlot) || minSlot < 0 ? DEFAULTS.minSlotMinutes : minSlot,
-    includeWeekends: weekends === 'yes' || weekends === 'true'
+    includeWeekends: weekends === 'yes' || weekends === 'true',
+    excludeDeclined: parseYesNo_(values['exclude declined meetings?'], DEFAULTS.excludeDeclined),
+    excludeAllDay: parseYesNo_(values['exclude all-day events?'], DEFAULTS.excludeAllDay)
   };
 }
 
 /**
- * Collects busy intervals from every calendar the user has, within [start, end).
- * All-day and declined events are included (counted as busy).
+ * Parses a Yes/No cell. Blank/unrecognized falls back to `fallback`.
  */
-function getBusyIntervals_(start, end) {
+function parseYesNo_(value, fallback) {
+  var s = String(value == null ? '' : value).trim().toLowerCase();
+  if (s === 'yes' || s === 'true') return true;
+  if (s === 'no' || s === 'false') return false;
+  return fallback;
+}
+
+/**
+ * Collects busy intervals from every calendar the user has, within [start, end).
+ * Declined meetings and all-day events are skipped when their setting is on.
+ */
+function getBusyIntervals_(start, end, settings) {
   var calendars = CalendarApp.getAllCalendars();
   var intervals = [];
   for (var c = 0; c < calendars.length; c++) {
     var events = calendars[c].getEvents(start, end);
     for (var e = 0; e < events.length; e++) {
-      intervals.push({ start: events[e].getStartTime(), end: events[e].getEndTime() });
+      var event = events[e];
+      if (settings.excludeDeclined && event.getMyStatus() === CalendarApp.GuestStatus.NO) {
+        continue;
+      }
+      if (settings.excludeAllDay && event.isAllDayEvent()) {
+        continue;
+      }
+      intervals.push({ start: event.getStartTime(), end: event.getEndTime() });
     }
   }
   return intervals;
@@ -226,6 +251,118 @@ function writeResults_(ss, rows, tz) {
   sheet.setColumnWidth(1, 130);
   sheet.setColumnWidth(2, 520);
   sheet.setFrozenRows(2);
+  ss.setActiveSheet(sheet);
+}
+
+/**
+ * One-time diagnostic: lists how each upcoming event is classified, so we can
+ * see how booking-page holds appear in this account. The "Free/Busy" and
+ * "Event type" columns need the Advanced Calendar Service (see SETUP.md); the
+ * rest works without it.
+ */
+function scanCalendar() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var settings = readSettings_();
+  var tz = Session.getScriptTimeZone();
+
+  var rangeStart = startOfDay_(new Date());
+  var rangeEnd = addDays_(rangeStart, settings.daysAhead);
+  var hasAdvanced = (typeof Calendar !== 'undefined');
+
+  var rows = [];
+  var calendars = CalendarApp.getAllCalendars();
+  for (var c = 0; c < calendars.length; c++) {
+    var cal = calendars[c];
+    var calName = cal.getName();
+    var events = cal.getEvents(rangeStart, rangeEnd);
+
+    // Look up richer fields (eventType, Free/Busy) by iCalUID when available.
+    var extra = hasAdvanced ? getAdvancedDetails_(cal.getId(), rangeStart, rangeEnd) : {};
+
+    for (var e = 0; e < events.length; e++) {
+      var event = events[e];
+      var info = extra[event.getId()] || {};
+      rows.push([
+        calName,
+        event.getTitle(),
+        Utilities.formatDate(event.getStartTime(), tz, 'EEE, MMM d, h:mm a'),
+        event.isAllDayEvent() ? 'Yes' : 'No',
+        guestStatusLabel_(event.getMyStatus()),
+        info.freeBusy || (hasAdvanced ? 'Busy' : '(enable Calendar service)'),
+        info.eventType || (hasAdvanced ? 'default' : '(enable Calendar service)')
+      ]);
+    }
+  }
+
+  writeDiagnostic_(ss, rows, hasAdvanced);
+}
+
+/**
+ * Returns a map of iCalUID -> {freeBusy, eventType} from the Advanced Calendar
+ * Service for one calendar. Used only by the diagnostic.
+ */
+function getAdvancedDetails_(calendarId, start, end) {
+  var map = {};
+  try {
+    var resp = Calendar.Events.list(calendarId, {
+      timeMin: start.toISOString(),
+      timeMax: end.toISOString(),
+      singleEvents: true,
+      maxResults: 250
+    });
+    var items = resp.items || [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (!item.iCalUID) continue;
+      map[item.iCalUID] = {
+        freeBusy: item.transparency === 'transparent' ? 'Free' : 'Busy',
+        eventType: item.eventType || 'default'
+      };
+    }
+  } catch (err) {
+    // Calendar service not enabled / no access — diagnostic still shows basics.
+  }
+  return map;
+}
+
+/**
+ * Human-readable label for a CalendarApp GuestStatus.
+ */
+function guestStatusLabel_(status) {
+  if (status === CalendarApp.GuestStatus.NO) return 'Declined';
+  if (status === CalendarApp.GuestStatus.YES) return 'Yes';
+  if (status === CalendarApp.GuestStatus.MAYBE) return 'Maybe';
+  if (status === CalendarApp.GuestStatus.INVITED) return 'Invited';
+  if (status === CalendarApp.GuestStatus.OWNER) return 'Owner';
+  return '—';
+}
+
+/**
+ * Writes the diagnostic rows to the Diagnostic sheet, clearing previous output.
+ */
+function writeDiagnostic_(ss, rows, hasAdvanced) {
+  var sheet = ss.getSheetByName(DIAGNOSTIC_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(DIAGNOSTIC_SHEET);
+  }
+  sheet.clear();
+
+  var note = hasAdvanced
+    ? 'Diagnostic — send this tab back so the booking-page setting can be finished.'
+    : 'Diagnostic — for the "Free/Busy" and "Event type" columns, turn on the Calendar service (see SETUP.md), then run this again.';
+  sheet.getRange(1, 1).setValue(note).setFontWeight('bold');
+
+  var header = ['Calendar', 'Event', 'Starts', 'All-day?', 'My RSVP', 'Free/Busy', 'Event type'];
+  sheet.getRange(2, 1, 1, header.length).setValues([header]).setFontWeight('bold');
+
+  if (rows.length) {
+    sheet.getRange(3, 1, rows.length, header.length).setValues(rows);
+  } else {
+    sheet.getRange(3, 1).setValue('No events found in the range.');
+  }
+
+  sheet.setFrozenRows(2);
+  sheet.autoResizeColumns(1, header.length);
   ss.setActiveSheet(sheet);
 }
 
