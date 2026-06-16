@@ -20,6 +20,7 @@ var DEFAULTS = {
 var SETTINGS_SHEET = 'Settings';
 var RESULTS_SHEET = 'Free Times';
 var DIAGNOSTIC_SHEET = 'Diagnostic';
+var CALENDARS_SHEET = 'Calendars';
 
 /**
  * Adds the custom menu when the Sheet is opened.
@@ -30,6 +31,7 @@ function onOpen() {
     .addItem('Find Free Times', 'findFreeTimes')
     .addSeparator()
     .addItem('Set up sheet', 'setupSheet')
+    .addItem('Choose calendars', 'setupCalendars')
     .addItem('Scan my calendar (diagnostic)', 'scanCalendar')
     .addToUi();
 }
@@ -63,10 +65,77 @@ function setupSheet() {
   sheet.setColumnWidth(3, 360);
   sheet.setFrozenRows(1);
 
+  buildCalendarsSheet_();
+
   SpreadsheetApp.getUi().alert(
-    'All set! Adjust the settings if you like, then choose ' +
+    'All set! Check the "Calendars" tab to pick which calendars count toward ' +
+    'your busy time (only your own are on by default), adjust the settings if ' +
+    'you like, then choose "Calendar Tools → Find Free Times".'
+  );
+}
+
+/**
+ * Menu action: (re)build the Calendars tab so new calendars show up, keeping
+ * any Include choices already made.
+ */
+function setupCalendars() {
+  buildCalendarsSheet_();
+  SpreadsheetApp.getUi().alert(
+    'The "Calendars" tab lists every calendar you can see. Set Include? to Yes ' +
+    'for the ones that should count as your busy time, then choose ' +
     '"Calendar Tools → Find Free Times".'
   );
+}
+
+/**
+ * Creates/refreshes the Calendars sheet: one row per calendar with an Include?
+ * (Yes/No) column. New calendars default to Yes only if you own them; existing
+ * choices are preserved. No alert (callers handle messaging).
+ */
+function buildCalendarsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CALENDARS_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(CALENDARS_SHEET, 1);
+  }
+
+  // Preserve any Include choices already made, keyed by calendar name.
+  var prev = {};
+  if (sheet.getLastRow() >= 2) {
+    var old = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < old.length; i++) {
+      var oldName = String(old[i][0]).trim();
+      if (oldName) prev[oldName] = old[i][1];
+    }
+  }
+  sheet.clear();
+
+  var calendars = CalendarApp.getAllCalendars();
+  calendars.sort(function (a, b) {
+    var ao = a.isOwnedByMe() ? 0 : 1;
+    var bo = b.isOwnedByMe() ? 0 : 1;
+    if (ao !== bo) return ao - bo;            // your own calendars first
+    return a.getName().localeCompare(b.getName());
+  });
+
+  var rows = [['Calendar', 'Include?', 'Notes']];
+  for (var c = 0; c < calendars.length; c++) {
+    var name = calendars[c].getName();
+    var owned = calendars[c].isOwnedByMe();
+    var include = prev.hasOwnProperty(name) ? prev[name] : (owned ? 'Yes' : 'No');
+    rows.push([name, include, owned ? 'Your own calendar' : 'Subscribed (someone else’s)']);
+  }
+
+  sheet.getRange(1, 1, rows.length, 3).setValues(rows);
+  sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
+  if (rows.length > 1) {
+    var rule = SpreadsheetApp.newDataValidation().requireValueInList(['Yes', 'No'], true).build();
+    sheet.getRange(2, 2, rows.length - 1, 1).setDataValidation(rule);
+  }
+  sheet.setColumnWidth(1, 280);
+  sheet.setColumnWidth(2, 90);
+  sheet.setColumnWidth(3, 220);
+  sheet.setFrozenRows(1);
 }
 
 /**
@@ -160,13 +229,40 @@ function parseYesNo_(value, fallback) {
 }
 
 /**
- * Collects busy intervals from every calendar the user has, within [start, end).
+ * Returns the set of calendar names marked Include = Yes on the Calendars tab,
+ * or null if that tab doesn't exist yet (callers then fall back to owned-only).
+ */
+function getIncludedCalendarNames_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CALENDARS_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  var set = {};
+  for (var i = 0; i < data.length; i++) {
+    var name = String(data[i][0]).trim();
+    if (name && parseYesNo_(data[i][1], false)) set[name] = true;
+  }
+  return set;
+}
+
+/**
+ * Whether a calendar should count toward busy time. With no Calendars tab yet,
+ * default to calendars the user owns (skips subscribed coworker calendars).
+ */
+function isCalendarIncluded_(calendar, includedSet) {
+  if (includedSet === null) return calendar.isOwnedByMe();
+  return includedSet[calendar.getName()] === true;
+}
+
+/**
+ * Collects busy intervals from the included calendars, within [start, end).
  * Declined meetings and all-day events are skipped when their setting is on.
  */
 function getBusyIntervals_(start, end, settings) {
   var calendars = CalendarApp.getAllCalendars();
+  var included = getIncludedCalendarNames_();
   var intervals = [];
   for (var c = 0; c < calendars.length; c++) {
+    if (!isCalendarIncluded_(calendars[c], included)) continue;
     var events = calendars[c].getEvents(start, end);
     for (var e = 0; e < events.length; e++) {
       var event = events[e];
@@ -271,8 +367,10 @@ function scanCalendar() {
 
   var rows = [];
   var calendars = CalendarApp.getAllCalendars();
+  var included = getIncludedCalendarNames_();
   for (var c = 0; c < calendars.length; c++) {
     var cal = calendars[c];
+    if (!isCalendarIncluded_(cal, included)) continue;
     var calName = cal.getName();
     var events = cal.getEvents(rangeStart, rangeEnd);
 

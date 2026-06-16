@@ -9,7 +9,9 @@ You run it by clicking a menu item in the Sheet.
 
 ## What it does
 
-- Looks across **all** your calendars and merges your busy times.
+- Merges your busy times across the calendars **you choose** (a **Calendars**
+  tab lets you include/exclude each one; your own calendars are on by default,
+  so coworkers' shared calendars don't make you look busy).
 - Lists free slots for the next several days, grouped by day.
 - Only suggests times inside your chosen workday (default **9:00 AM–5:00 PM**,
   weekdays only).

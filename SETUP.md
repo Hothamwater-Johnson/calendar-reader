@@ -58,7 +58,21 @@ only have to do it once. No technical experience needed — just follow each ste
 3. Click **Calendar Tools** → **Set up sheet** once more if the menu closed.
    A tab called **Settings** will appear with some options you can change.
 
-## Step 6 — Find your free times
+## Step 6 — Pick which calendars count
+
+If you're subscribed to other people's calendars (coworkers, shared team
+calendars), the tool should ignore those — otherwise it thinks you're busy
+whenever *they* are.
+
+1. Open the **Calendars** tab (created during setup).
+2. Each calendar has an **Include?** column. **Your own calendars default to
+   Yes**; calendars you're just subscribed to default to **No**.
+3. Change any to Yes/No so only the calendars that represent *your* time are set
+   to **Yes**.
+4. If you add a new calendar later, click **Calendar Tools → Choose calendars**
+   to refresh the list (your existing choices are kept).
+
+## Step 7 — Find your free times
 
 1. Click **Calendar Tools** → **Find Free Times**.
 2. After a moment, a tab called **Free Times** appears with your open times,
@@ -93,26 +107,29 @@ If you set up the Sheet earlier and want the newest features:
 2. Select everything in the code box (**Ctrl+A** / **⌘+A**) and delete it.
 3. Paste in the latest **`Code.gs`**, then click **Save**.
 4. Go back to the Sheet and **reload the page** (F5).
-5. Click **Calendar Tools → Set up sheet** to add the new settings rows.
+5. Click **Calendar Tools → Set up sheet** to add any new settings rows and
+   build the **Calendars** tab.
+6. Open the **Calendars** tab and make sure only *your* calendars are set to
+   **Include? = Yes** (see Step 6 above).
 
 ---
 
-## Booking pages — one-time scan (optional, for now)
+## Booking pages — one-time scan
 
 Google "booking pages" don't have a clear label we can detect automatically, so
 there's a one-time scan to see how they show up in *your* calendar.
 
-1. **Turn on the Calendar service** (needed for the full scan):
+1. First make sure the **Calendars** tab has only your own calendars set to
+   **Yes** (so the scan focuses on your time, not coworkers').
+2. **Turn on the Calendar service** (needed for the full detail):
    - In the Sheet, click **Extensions → Apps Script**.
    - On the left, next to **Services**, click the **+**.
    - Find **Calendar API** in the list, click it, then click **Add**.
-2. Go back to the Sheet, then click **Calendar Tools → Scan my calendar
+3. Go back to the Sheet, then click **Calendar Tools → Scan my calendar
    (diagnostic)**.
-3. A tab called **Diagnostic** appears, listing your upcoming events and how each
-   is classified.
-4. Send that **Diagnostic** tab back so the booking-page setting can be finished.
-
-(You can skip this if you don't use booking pages.)
+4. A tab called **Diagnostic** appears, listing your upcoming events with the
+   **Free/Busy** and **Event type** columns now filled in.
+5. Send that **Diagnostic** tab back so the booking-page setting can be finished.
 
 ---
 
